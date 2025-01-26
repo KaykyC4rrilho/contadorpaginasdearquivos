@@ -1,8 +1,8 @@
 import os
 import tkinter as tk
-from tkinter import filedialog, scrolledtext, ttk
+from tkinter import filedialog
 import fitz  # PyMuPDF
-from PIL import Image, ImageTk
+from tkinter.filedialog import asksaveasfilename
 
 
 def contar_paginas_pdf(caminho):
@@ -14,52 +14,72 @@ def contar_paginas_pdf(caminho):
     except Exception as e:
         print(f"Erro ao processar {caminho}: {e}")
         return None
-def contar_por_tamanho_pdf(caminho_pdf):
-    try:
-        pdf = fitz.open(caminho_pdf)
-        tamanho_pagina = {"A0": 0, "A1": 0, "A2": 0, "A3": 0, "A4": 0, "Menor que A4": 0, "Maior que A0": 0}
 
-        for pagina in pdf:
-            largura = pagina.rect.width
-            altura = pagina.rect.height
+def processar_pdfs_em_pastas(raiz):
+    # Converte tamanhos padrão para pontos (1 mm = 2.83465 pontos)
+    mm_to_points = 2.83465
+    A5 = (148 * mm_to_points) * (210 * mm_to_points)
+    A4 = (210 * mm_to_points) * (297 * mm_to_points)
+    A3 = (297 * mm_to_points) * (420 * mm_to_points)
+    A2 = (420 * mm_to_points) * (594 * mm_to_points)
+    A1 = (594 * mm_to_points) * (841 * mm_to_points)
+    A0 = (841 * mm_to_points) * (1189 * mm_to_points)
 
-            # Considerando orientação retrato ou paisagem
-            largura, altura = sorted([largura, altura])
+    resultados = {
+        "total_paginas": 0,
+        "A5": 0,
+        "A4": 0,
+        "A3": 0,
+        "A2": 0,
+        "A1": 0,
+        "A0": 0,
+        "A00": 0,
+    }
 
-            # Maior que A0 (largura > 2384mm e altura > 3370mm)
-            if largura > 2384 and altura > 3370:
-                tamanho_pagina["Maior que A0"] += 1
-            elif largura == 2384 and altura == 3370:
-                tamanho_pagina["A0"] += 1
-            elif largura >= 1684 and altura >= 2384:
-                tamanho_pagina["A1"] += 1
-            elif largura >= 1190 and altura >= 1684:
-                tamanho_pagina["A2"] += 1
-            elif largura >= 841 and altura >= 1190:
-                tamanho_pagina["A3"] += 1
-            elif largura >= 595 and altura >= 841:
-                tamanho_pagina["A4"] += 1
-            elif largura < 595 and altura < 841:
-                tamanho_pagina["Menor que A4"] += 1
-            elif largura > 2384 or altura > 3370:
-                tamanho_pagina["Maior que A0"] += 1
+    for root, _, files in os.walk(raiz):
+        for file in files:
+            if file.lower().endswith(".pdf"):
+                caminho_pdf = os.path.join(root, file)
+                try:
+                    pdf = fitz.open(caminho_pdf)
+                    for page in pdf:
+                        # Obtém largura e altura da página em pontos
+                        width, height = page.rect.width, page.rect.height
+                        area = width * height
 
-        return tamanho_pagina
-    except Exception as e:
-        print(f"Erro ao processar o PDF: {e}")
-        return None
+                        # Classifica o tamanho da página
+                        if area < A5:
+                            resultados["A5"] += 1
+                        elif area < A4:
+                            resultados["A4"] += 1
+                        elif area < A3:
+                            resultados["A3"] += 1
+                        elif area < A2:
+                            resultados["A2"] += 1
+                        elif area < A1:
+                            resultados["A1"] += 1
+                        elif area < A0:
+                            resultados["A0"] += 1
+                        else:
+                            resultados["A00"] += 1
+
+                    resultados["total_paginas"] += len(pdf)
+                except Exception as e:
+                    print(f"Erro ao processar {caminho_pdf}: {e}")
+
+    return resultados
+
 def gerar_relatorio(caminho_raiz):
     total_pastas = 0
     total_documentos = 0
     total_paginas = 0
+    resultados = processar_pdfs_em_pastas(caminho_raiz)
 
     contador_geral = []
     resumo = []
     erros = []
 
-    tamanho_pagina_total = {"A0": 0, "A1": 0, "A2": 0, "A3": 0, "A4": 0, "Menor que A4": 0, "Maior que A0": 0}
-
-    for raiz, diretorios, arquivos in os.walk(caminho_raiz):
+    for raiz, _, arquivos in os.walk(caminho_raiz):
         documentos = 0
         paginas = 0
         pasta_contador = []
@@ -69,15 +89,13 @@ def gerar_relatorio(caminho_raiz):
                 caminho = os.path.join(raiz, arquivo)
                 paginas_pdf = contar_paginas_pdf(caminho)
 
-                if paginas_pdf is not None:
+                if paginas_pdf:
                     documentos += 1
                     paginas += paginas_pdf
-                    pasta_contador.append(f"{arquivo}: {paginas_pdf}")
-                    tamanho_pdf = contar_por_tamanho_pdf(caminho)
-                    for key in tamanho_pdf:
-                        tamanho_pagina_total[key] += tamanho_pdf[key]
+                    pasta_contador.append(f"{arquivo}: {paginas_pdf} páginas")
+
                 else:
-                    erros.append(f"Erro ao Ler {caminho}")
+                    erros.append(f"Erro ao ler {caminho}")
 
         if documentos > 0:
             total_pastas += 1
@@ -85,38 +103,60 @@ def gerar_relatorio(caminho_raiz):
             total_paginas += paginas
 
             contador_geral.append(f"Pasta: {raiz}")
-            contador_geral.extend((pasta_contador))
-            contador_geral.append(f"Resumo da pasta: {raiz}, {documentos} documentos, {paginas} paginas\n")
+            contador_geral.extend(pasta_contador)
+            contador_geral.append(f"Resumo da pasta: {raiz}, {documentos} documentos, {paginas} páginas\n")
             resumo.append(f"{raiz}: {documentos} documentos, {paginas} páginas")
 
     resumo.append(f"\nTotal: {total_pastas} pastas, {total_documentos} documentos, {total_paginas} páginas")
     contador_geral.append(f"\nTotal: {total_pastas} pastas, {total_documentos} documentos, {total_paginas} páginas")
 
-    contador_geral.append(f"\nTamanhos de Página:")
-    resumo.append(f"\nTamanhos de Página:")
-    for key, value in tamanho_pagina_total.items():
+    contador_geral.append("\nTamanhos de Página:")
+    resumo.append("\nTamanhos de Página:")
+    for key, value in resultados.items():
         contador_geral.append(f"{key}: {value} páginas")
         resumo.append(f"{key}: {value} páginas")
 
-    with open('contador_geral.txt', 'w') as f:
-        f.write("\n".join(contador_geral))
-
-    with open('resumo.txt', 'w') as f:
-        f.write("\n".join(resumo))
-
-    with open('erros.txt', 'w') as f:
-        f.write("\n".join(erros))
-
     return "\n".join(resumo), "\n".join(contador_geral), "\n".join(erros)
+def salvar_txts():
+    caminho_raiz = entrada_caminho.get()
+    if not caminho_raiz:
+        resultado.set("Por favor, selecione uma pasta.")
+        return
+
+    resumo_texto, contador_texto, erros_texto = gerar_relatorio(caminho_raiz)
+
+    try:
+        # Salvar Contador Geral
+        caminho_contador = asksaveasfilename(
+            title="Salvar Contador Geral",
+            defaultextension=".txt",
+            filetypes=[("Arquivos de texto", "*.txt")],
+            initialfile="contador_geral.txt"
+        )
+        if caminho_contador:
+            with open(caminho_contador, 'w') as f:
+                f.write(contador_texto)
+
+        # Salvar Resumo
+        caminho_resumo = asksaveasfilename(
+            title="Salvar Resumo",
+            defaultextension=".txt",
+            filetypes=[("Arquivos de texto", "*.txt")],
+            initialfile="resumo.txt"
+        )
+        if caminho_resumo:
+            with open(caminho_resumo, 'w') as f:
+                f.write(resumo_texto)
 
 
-
+        resultado.set("Arquivos TXT salvos com sucesso!")
+    except Exception as e:
+        resultado.set(f"Erro ao salvar os arquivos: {e}")
 def selecionar_pasta():
     caminho = filedialog.askdirectory()
     entrada_caminho.delete(0, tk.END)
     entrada_caminho.insert(0, caminho)
     atualizar_arvore(caminho)
-
 
 def iniciar_contagem():
     caminho_raiz = entrada_caminho.get()
@@ -129,8 +169,10 @@ def iniciar_contagem():
 
 
 def exibir_relatorio(conteudo):
+    area_texto.config(state=tk.NORMAL)
     area_texto.delete('1.0', tk.END)
     area_texto.insert(tk.END, conteudo)
+    area_texto.config(state=tk.DISABLED)
 
 
 def alternar_relatorio(tipo):
@@ -138,10 +180,9 @@ def alternar_relatorio(tipo):
     if not caminho_raiz:
         resultado.set("Por favor, selecione uma pasta.")
         return
-    _, contador_texto, erros_texto = gerar_relatorio(caminho_raiz)
-
+    resumo_texto, contador_texto, erros_texto = gerar_relatorio(caminho_raiz)
     if tipo == 'resumo':
-        resumo_texto, _, _ = gerar_relatorio(caminho_raiz)
+        exibir_relatorio(resumo_texto)
     elif tipo == 'contador':
         exibir_relatorio(contador_texto)
     elif tipo == 'erros':
@@ -162,106 +203,52 @@ def atualizar_arvore(caminho_raiz):
 
     inserir_pastas(caminho_raiz)
 
-
-# Função para exibir o PDF como imagem
-def exibir_pdf(caminho_pdf):
-    try:
-        # Abrir o arquivo PDF usando PyMuPDF
-        pdf = fitz.open(caminho_pdf)
-        global paginas_pdf  # Variável global para armazenar as páginas
-        paginas_pdf = []
-
-        # Converte todas as páginas para imagens e armazena em uma lista
-        for i in range(pdf.page_count):
-            pagina = pdf[i]
-            imagem_pagina = pagina.get_pixmap()
-            imagem_tk = ImageTk.PhotoImage(
-                Image.frombytes("RGB", (imagem_pagina.width, imagem_pagina.height), imagem_pagina.samples))
-            paginas_pdf.append(imagem_tk)
-
-        # Exibe a primeira página
-        mostrar_pagina(0)
-    except Exception as e:
-        exibir_relatorio(f"Erro ao abrir o PDF: {e}")
-
-
-# Função para mostrar uma página específica
-def mostrar_pagina(indice):
-    if 0 <= indice < len(paginas_pdf):
-        imagem_tk = paginas_pdf[indice]
-        label_imagem.configure(image=imagem_tk)
-        label_imagem.image = imagem_tk  # Mantém a referência para a imagem
-
-
-# Função para selecionar o item da árvore e abrir o PDF
-def item_selecionado(event):
-    item = arvore.selection()
-    if item:
-        caminho_item = arvore.item(item[0])['text']
-        caminho_completo = os.path.join(entrada_caminho.get(), caminho_item)
-        caminho_completo = os.path.normpath(caminho_completo)
-        if caminho_item.lower().endswith('.pdf'):
-            exibir_pdf(caminho_completo)
-
-
-# Função para navegar para a próxima página
-def proxima_pagina():
-    global pagina_atual
-    if pagina_atual < len(paginas_pdf) - 1:
-        pagina_atual += 1
-        mostrar_pagina(pagina_atual)
-
-
-# Função para navegar para a página anterior
-def pagina_anterior():
-    global pagina_atual
-    if pagina_atual > 0:
-        pagina_atual -= 1
-        mostrar_pagina(pagina_atual)
-
-
 # Variável global para controlar a página atual
 pagina_atual = 0
 
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
+
 # Configuração da interface gráfica
-janela = tk.Tk()
+janela = ttk.Window(themename="darkly")  # Tema moderno
 janela.title("Visualizador de PDF")
+janela.geometry("800x600")  # Definir tamanho inicial
 
 # Layout da interface
-tk.Label(janela, text="Caminho da pasta:").grid(row=0, column=1, padx=5, pady=5)
-entrada_caminho = tk.Entry(janela, width=50)
-entrada_caminho.grid(row=0, column=2, padx=5, pady=5)
+frame_superior = ttk.Frame(janela, padding=10)
+frame_superior.pack(fill=X)
 
-tk.Button(janela, text="Selecionar pasta", command=selecionar_pasta).grid(row=0, column=3, padx=5, pady=5)
+ttk.Label(frame_superior, text="Caminho da pasta:", font=("Helvetica", 12)).pack(side=LEFT, padx=5)
+entrada_caminho = ttk.Entry(frame_superior, width=50)
+entrada_caminho.pack(side=LEFT, padx=5)
+ttk.Button(frame_superior, text="Selecionar pasta", command=selecionar_pasta, bootstyle=PRIMARY).pack(side=LEFT, padx=5)
+ttk.Button(frame_superior, text="Contar páginas", command=iniciar_contagem, bootstyle=SUCCESS).pack(side=LEFT, padx=5)
 
-tk.Button(janela, text="Contar páginas", command=iniciar_contagem).grid(row=1, column=2, padx=5, pady=5)
-
-resultado = tk.StringVar()
-tk.Label(janela, textvariable=resultado).grid(row=2, column=2, padx=5, pady=5)
+resultado = ttk.StringVar()
+ttk.Label(janela, textvariable=resultado, font=("Helvetica", 12), padding=10).pack()
 
 # Área da árvore de navegação
-arvore = ttk.Treeview(janela)
-arvore.grid(row=3, column=0, rowspan=3, padx=5, pady=5, sticky='ns')
-arvore.bind("<Double-1>", item_selecionado)  # Associa o clique duplo
+frame_principal = ttk.Frame(janela, padding=10)
+frame_principal.pack(fill=BOTH, expand=True)
+
+arvore = ttk.Treeview(frame_principal)
+arvore.pack(side=LEFT, fill=Y, expand=False, padx=5, pady=5)
 
 # Área de texto para exibição dos relatórios
-area_texto = scrolledtext.ScrolledText(janela, width=60, height=20)
-area_texto.grid(row=3, column=1, columnspan=3, padx=5, pady=5)
+area_texto = ttk.ScrolledText(frame_principal, width=60, height=20)
+area_texto.pack(side=LEFT, fill=BOTH, expand=True, padx=5, pady=5)
 
 # Botões para alternar entre os relatórios
-tk.Button(janela, text="Mostrar Resumo", command=lambda: alternar_relatorio('resumo')).grid(row=4, column=1, padx=5,
-                                                                                            pady=5)
-tk.Button(janela, text="Mostrar Contador Geral", command=lambda: alternar_relatorio('contador')).grid(row=4, column=2,
-                                                                                                      padx=5, pady=5)
-tk.Button(janela, text="Mostrar Erros", command=lambda: alternar_relatorio('erros')).grid(row=4, column=3, padx=5,
-                                                                                          pady=5)
+frame_botoes = ttk.Frame(janela, padding=10)
+frame_botoes.pack(fill=X)
 
-# Label para exibir o PDF como imagem
-#label_imagem = tk.Label(janela)
-#label_imagem.grid(row=3, column=4, rowspan=3, padx=5, pady=5, sticky="e")  # Alinha à direita com 'sticky="e"'
+ttk.Button(frame_botoes, text="Mostrar Resumo", command=lambda: alternar_relatorio('resumo'), bootstyle=INFO).pack(
+    side=LEFT, padx=5)
+ttk.Button(frame_botoes, text="Mostrar Contador Geral", command=lambda: alternar_relatorio('contador'),
+           bootstyle=SECONDARY).pack(side=LEFT, padx=5)
+ttk.Button(frame_botoes, text="Mostrar Erros", command=lambda: alternar_relatorio('erros'), bootstyle=DANGER).pack(
+    side=LEFT, padx=5)
+ttk.Button(frame_botoes, text="Salvar Resumos", command=salvar_txts, bootstyle=SUCCESS).pack(side=RIGHT, padx=(0,100))
 
-# Botões de navegação
-#tk.Button(janela, text="Anterior", command=pagina_anterior).grid(row=5, column=4, padx=5, pady=5)
-#tk.Button(janela, text="Próxima", command=proxima_pagina).grid(row=6, column=4, padx=5, pady=5)
 
 janela.mainloop()
